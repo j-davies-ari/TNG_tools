@@ -55,6 +55,7 @@ eagle_groupnumbers = eagle_groupnumbers[eagle_sort]
 
 eagle_locations = searchsort_locate(eagle_M200,closest_masses)
 eagle_groupnumbers = eagle_groupnumbers[eagle_locations]
+eagle_M200 = eagle_M200[eagle_locations]
 
 # IllustrisTNG
 tng_M200 = np.log10(tng_snap.M200 * 1e10) # Log stellar masses
@@ -70,10 +71,11 @@ tng_groupnumbers = tng_groupnumbers[tng_sort]
 
 tng_locations = searchsort_locate(tng_M200,closest_masses)
 tng_groupnumbers = tng_groupnumbers[tng_locations]
+tng_M200 = tng_M200[tng_locations]
 
 print 'Target masses: ',closest_masses
-print 'EAGLE masses: ',eagle_M200[eagle_locations]
-print 'IllustrisTNG masses: ',tng_M200[tng_locations]
+print 'EAGLE masses: ',eagle_M200
+print 'IllustrisTNG masses: ',tng_M200
 
 
 
@@ -159,30 +161,98 @@ for h, halomass in enumerate(closest_masses):
         tng_mass = tng_snap.load('Masses',cgs=True)
         tng_density = tng_snap.load('Density',cgs=True)
         tng_H_abund = tng_snap.load('GFM_Metals')[:,0]
-        tng_nH = np.log10(tng_density * tng_H_abund/C.m_H_cgs)
-        tng_temp = np.log10(tng_snap.load_temperature())
+        tng_nH = tng_density * tng_H_abund/C.m_H_cgs
+        tng_temp = tng_snap.load_temperature()
         tng_num_ratios = tng_snap.load_abundances()[1]
-        tng_t_cool_fromsnap = tng_snap.load('GFM_CoolingRate') * tng_nH**2 * tng_mass/tng_density 
+        tng_coolingrate_fromsnap = -1. * tng_snap.load('GFM_CoolingRate') * tng_nH**2 * tng_mass/tng_density 
 
         tng_luminosity = cloudy.particle_luminosity(tng_temp,tng_nH,tng_num_ratios,tng_mass,tng_density)
 
         tng_t_cool = (((3./2.)*C.boltzmann_cgs*tng_temp)/tng_luminosity) * tng_mass/(0.59*C.m_p_cgs)
+        tng_t_cool_fromsnap = (((3./2.)*C.boltzmann_cgs*tng_temp)/tng_coolingrate_fromsnap) * tng_mass/(0.59*C.m_p_cgs)
         tng_t_cool /= C.Gyr_s # convert to Gyr
+        tng_t_cool_fromsnap /= C.Gyr_s # convert to Gyr
+
 
         cooling_cloudy = np.where(tng_t_cool>0.)[0]
         cooling_snap = np.where(tng_t_cool_fromsnap>0.)[0]
 
-        ax.hist(np.log10(tng_t_cool[cooling_cloudy]),histtype='step',color=col_dict['navy'],log=True,bins=50)
+        ax.hist(np.log10(tng_t_cool[cooling_cloudy]),histtype='step',color=col_dict['navy'],log=True,bins=np.linspace(-6.,2.,50))
 
-        ax.hist(np.log10(tng_t_cool_fromsnap[cooling_snap]),histtype='step',color=col_dict['cyan'],log=True,bins=50)
+        ax.hist(np.log10(tng_t_cool_fromsnap[cooling_snap]),histtype='step',color=col_dict['cyan'],log=True,bins=np.linspace(-6.,2.,50))
 
 
         ax.set_ylabel(r'$\log(N)$',fontsize=16)
-        ax.set_xlabel(r'$\log(t_{\rm cool})\,[{\rm erg}\,{\rm s}^{-1}]$',fontsize=16)
+        ax.set_xlabel(r'$\log(t_{\rm cool})\,[{\rm Gyr}]$',fontsize=16)
 
         plt.savefig('/home/arijdav1/Dropbox/phd/figures/paper_plots/scatter_plots/morphology/TNG100-1/testing/cooling_M%.1f.png'%(halomass))
 
+        # Cooling time rho-T
 
+        fig, (lax,rax) = plt.subplots(1,2,figsize=(16,8),sharey=True)
+        fig.subplots_adjust(wspace=0)
+
+        
+
+        cloudy_map = lax.hexbin(np.log10(tng_nH[cooling_cloudy]),np.log10(tng_temp[cooling_cloudy]),C=tng_t_cool[cooling_cloudy], gridsize=200,bins='log',cmap=rainbow_cmap)
+        lax.set_xlabel(r'$\log(n_{\rm H})\,[{\rm cm}^{-3}]$',fontsize=16)
+        lax.set_ylabel(r'$\log(T)\,[{\rm K}]$',fontsize=16)
+
+        snap_map = rax.hexbin(np.log10(tng_nH[cooling_snap]),np.log10(tng_temp[cooling_snap]),C=tng_t_cool_fromsnap[cooling_snap], gridsize=200,bins='log',cmap=rainbow_cmap)
+        rax.set_xlabel(r'$\log(n_{\rm H})\,[{\rm cm}^{-3}]$',fontsize=16)
+
+        lax.annotate(r'$\mathrm{CLOUDY}$'+'\n'+r'$\log(M_{200})[{\rm M_{\odot}}]=%.1f$'%(halomass),xy=(-1.5,6.7),fontsize=16)
+        rax.annotate(r'$\mathrm{Snapshot}$'+'\n'+r'$\log(M_{200})[{\rm M_{\odot}}]=%.1f$'%(halomass),xy=(-1.5,6.7),fontsize=16)
+
+        maps = [cloudy_map,snap_map]
+
+        for a, ax in enumerate([lax,rax]):
+            ax.set_ylim(3.,9.)
+            ax.set_xlim(-6.8,1.8)
+
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("top",size="5%",pad=0.)
+            col = plt.colorbar(maps[a], cax=cax, orientation='horizontal')
+            col.ax.xaxis.set_ticks_position('top')
+            col.set_label(r'$\log(t_{\rm cool})$',labelpad=-55.,fontsize=16) 
+
+        plt.savefig('/home/arijdav1/Dropbox/phd/figures/paper_plots/scatter_plots/morphology/TNG100-1/testing/rhoT_coolingtime_M%.1f.png'%(halomass))
+
+
+
+
+
+    elif 'halo' in argv:
+
+        # EAGLE
+        masstable = E.readAttribute('SNAPSHOT', eagle_location, '028_z000p000', "/Header/MassTable") / 0.6777
+
+        eagle_total_mass = 0.
+
+        for ptype in [0,4,5]:
+            eagle_snap.select(eagle_groupnumbers[h],parttype=ptype,region_size='r200')
+
+            eagle_total_mass += np.sum(eagle_snap.load('Mass')) *1e10
+
+        eagle_snap.select(eagle_groupnumbers[h],parttype=1,region_size='r200')
+        eagle_total_mass += len(eagle_snap.particle_selection) * masstable[1] * 1e10
+
+        print "EAGLE total mass / M200 = ",eagle_total_mass/(10.**eagle_M200[h])
+
+
+        # IllustrisTNG
+
+        tng_total_mass = 0.
+
+        for ptype in [0,4,5]:
+            tng_snap.select(tng_groupnumbers[h],parttype=ptype,region_size='r200')
+
+            tng_total_mass += np.sum(tng_snap.load('Masses')) *1e10
+
+        tng_snap.select(tng_groupnumbers[h],parttype=1,region_size='r200')
+        tng_total_mass += len(tng_snap.particle_selection) * tng_snap.masstable[1] * 1e10
+
+        print "IllustrisTNG total mass / M200 = ",tng_total_mass/(10.**tng_M200[h])
 
 
     else:

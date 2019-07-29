@@ -27,38 +27,49 @@ class TNGSnapshot(object):
         self.boxsize = header['BoxSize']/self.h # physical units
 
         with h5.File(self.snapfile, 'r') as f:
-            # particleheader = f['Header'].attrs['MassTable']
-            # h_conversion_factor = temp_data.attrs['h_scaling']
             self.masstable = f['Header'].attrs['MassTable']/self.h
 
 
         # FOF quantities
 
-        FOF_quantities = ['GroupFirstSub','Group_M_Crit200','Group_R_Crit200']
+        FOF_quantities = ['GroupFirstSub','Group_M_Crit200','Group_R_Crit200','Group_R_Crit500']
         FOF_load = groups.loadHalos(self.sim_path,self.snapnum,fields=FOF_quantities)
 
         first_subhalo = FOF_load['GroupFirstSub']
         M200 = FOF_load['Group_M_Crit200'] / self.h
         r200 = FOF_load['Group_R_Crit200'] * self.aexp/self.h
+        r500 = FOF_load['Group_R_Crit500'] * self.aexp/self.h
         groupnumbers = np.arange(len(M200))+1
 
-        non_empty = np.where(first_subhalo>=0)[0]
+        self.non_empty = np.where(first_subhalo>=0)[0]
 
-        self.M200 = M200[non_empty]
-        self.r200 = r200[non_empty]
-        self.groupnumbers = groupnumbers[non_empty]
-        first_subhalo = first_subhalo[non_empty]
+        self.M200 = M200[self.non_empty]
+        self.r200 = r200[self.non_empty]
+        self.r500 = r500[self.non_empty]
+        self.groupnumbers = groupnumbers[self.non_empty]
+        self.first_subhalo = first_subhalo[self.non_empty]
 
         # SUBFIND quantities
-        self.subfind_centres = groups.loadSubhalos(self.sim_path,self.snapnum,fields='SubhaloPos')[first_subhalo,:] * self.aexp/self.h
+        self.subfind_centres = groups.loadSubhalos(self.sim_path,self.snapnum,fields='SubhaloPos')[self.first_subhalo,:] * self.aexp/self.h
 
         self.have_run_select = False
 
+    def load_FOF(self,field,all_groups=False):
+        # Load FOF info for all non-empty FOF groups
+        # Note these will NOT be corrected for h and a, and will be in code units
+        if not all_groups:
+            return groups.loadHalos(self.sim_path,self.snapnum,fields=field)[self.non_empty]
+        else:
+            return groups.loadHalos(self.sim_path,self.snapnum,fields=field)
 
-        # # Load all particle coordinates for making masks with get_mask
+    def load_subfind(self,field,all_subhalos=False):
+        # Load SUBFIND info for the centrals of all non-empty FOF groups
+        # Note these will NOT be corrected for h and a, and will be in code units
+        if not all_subhalos:
+            return groups.loadSubhalos(self.sim_path,self.snapnum,fields=field)[self.first_subhalo]
+        else:
+            return groups.loadSubhalos(self.sim_path,self.snapnum,fields=field)
 
-        # fields = ['Coordinates']
-        # self.pos = particles.loadSubset(self.sim_path,self.snapnum,self.parttype,fields=fields) * self.aexp/self.h
 
     def select(self,groupnumber,parttype=0,region_size='r200'): # Region size is in pkpc
 
@@ -75,13 +86,10 @@ class TNGSnapshot(object):
 
         # Get the centre of potential from SUBFIND
         centre = self.subfind_centres[location,:]
-        #code_centre = centre * self.h/self.aexp # convert to h-less comoving code units
 
         # If the region size hasn't been given, set it to r200 (this is the default)
         if region_size == 'r200':
             region_size = self.r200[location]
-
-        #code_region_size = region_size * self.h/self.aexp # convert to h-full comoving code units
 
         # Now we just need to establish which of the particles we loaded in are within the spherical region.
         
@@ -110,6 +118,9 @@ class TNGSnapshot(object):
         
     
     def load(self,quantity,verbose=False,cgs=False):
+
+        # First make sure that select has been run
+        assert self.have_run_select == True,'Please run "select" before trying to load anything in.'
 
         # Get our factors of h and a to convert to physical units
         with h5.File(self.snapfile, 'r') as f:
